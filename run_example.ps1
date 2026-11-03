@@ -26,7 +26,7 @@ docker run --rm `
     -v "${ResultsRoot}:/app" `
     -v "${DataRoot}:/data:ro" `
     -v "${ProjectRoot}:/repo:ro" `
-    reproducibility-project bash /repo/pipeline.sh
+    pastis bash /repo/pipeline.sh
 
 if ($LASTEXITCODE -ne 0) {
     throw "Docker pipeline failed with exit code $LASTEXITCODE. See logs under $ResultsRoot\logs."
