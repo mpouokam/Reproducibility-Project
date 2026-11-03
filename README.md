@@ -1,42 +1,38 @@
 # HindIII + MspI chromosome-linking example
 
-This example starts with the HindIII + MspI inter- and intra-chromosome interaction files. It maps the interactions to 10 kb bins, uses Pastis to reconstruct chromosome structures with four methods, then uses Java to estimate linking frequencies for every chromosome pair.
+This example starts with the HindIII + MspI inter- and intra-chromosome interaction files. It maps interactions to 10 kb bins, reconstructs chromosome structures with Pastis, and estimates linking frequencies with Java Monte Carlo sampling.
 
 ## Workflow and code
 
-1. `src/locus.py` maps the raw inter/intra CSV files to the 10 kb bins and writes the contact matrix.
-2. `config.ini` supplies the matrix and BED interval file to Pastis. Docker runs `pastis-pm2`, `pastis-pm1`, `pastis-mds`, and `pastis-nmds`.
-3. `src/coordinates_blank.py` formats the four structure coordinate files by chromosome. `src/split_chromosomes.py` writes each chromosome to a numbered file.
-4. `src/java/ComputeWriteC3.java` reads those numbered files and estimates pairwise linking frequencies using Monte Carlo random closures.
-5. `analysis/EB.py` and `analysis/chi-square.py` are optional follow-up analyses of the four linking-frequency files.
+1. `src/locus.py` maps the inter/intra CSV files to the BED intervals and creates the contact matrix.
+2. Docker runs Pastis with PM2, PM1, MDS, and NMDS using `config.ini`.
+3. `src/coordinates_blank.py` formats the structure coordinates by chromosome. `src/split_chromosomes.py` writes each chromosome to a numbered file.
+4. `src/java/ComputeWriteC3.java` estimates linking frequency for each chromosome pair.
+5. `analysis/EB.py` and `analysis/chi-square.py` are optional follow-up analyses.
 
-The Panel thresholding example is separate from the HindIII + MspI workflow. `analysis/semi-threshold.py` and `analysis/semi2.py` use the example vectors in `data/thresholding/`; those vectors are not generated from the HindIII + MspI input files.
+The Panel thresholding example is a separate analysis. The single retained script, `analysis/semi2.py`, reads `data/thresholding/panel_1_max.txt` and `panel_2_max.txt`. Those Panel inputs are not generated from the HindIII + MspI interaction files.
 
-## Install and build Docker
+## Install Docker and build the image
 
-Install and start Docker Desktop for Windows. Open PowerShell in the repository root, then build the image from the included `Dockerfile`:
+Install and start Docker Desktop for Windows. Open PowerShell in the repository root and build the image:
 
 ```powershell
 docker build -t pastis .
 ```
 
-The image contains Pastis and the Python libraries used by the pipeline. The project files are mounted into the container when each command runs.
+The image contains Pastis and its Python dependencies. The commands below mount the repository root into the container at `/app`.
 
-## Step 1: Prepare the run directory and contact matrix
+## Step 1: Create the contact matrix
 
-Run these commands from the repository root. Use a fresh results directory for each run.
+Run from the repository root. Copy the BED file next to `config.ini`, then map the raw interaction files to the 10 kb bins:
 
 ```powershell
-$ProjectRoot = $PWD.Path
-$RunDir = Join-Path $ProjectRoot "results\HindIII_MspI"
-New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
-Copy-Item .\config.ini $RunDir
-Copy-Item .\data\metadata\duan.SC.10000.raw_sub.bed $RunDir
+Copy-Item .\data\metadata\duan.SC.10000.raw_sub.bed .
 
 docker run --rm `
-  -v "${RunDir}:/app" `
-  -v "${ProjectRoot}\data\raw:/data:ro" `
-  -v "${ProjectRoot}\src:/src:ro" `
+  -v "${PWD}:/app" `
+  -v "${PWD}\data\raw:/data:ro" `
+  -v "${PWD}\src:/src:ro" `
   pastis python3 -u /src/locus.py `
     --inter-file "/data/HindIII_MspI_inter.csv" `
     --intra-file "/data/HindIII_MspI_intra.csv" `
@@ -44,62 +40,52 @@ docker run --rm `
     --out "/app/duan.SC.10000.raw_sub.matrix"
 ```
 
-This creates `duan.SC.10000.raw_sub.matrix` in the run directory. Pastis reads it along with `config.ini` and the BED file.
+This creates `duan.SC.10000.raw_sub.matrix` in the repository root. Pastis reads it with the root `config.ini` and BED file.
 
-## Step 2: Run the four Pastis reconstructions
+## Step 2: Run the four Pastis methods
 
-Still in PowerShell, run each Pastis method from the run directory so `.` refers to the directory containing the configuration and matrix:
+Still in the repository root, run each method separately. Each command writes its structure output into the mounted current directory:
 
 ```powershell
-Push-Location $RunDir
-
 docker run -it --rm -v "${PWD}:/app" pastis pastis-pm2 .
 docker run -it --rm -v "${PWD}:/app" pastis pastis-pm1 .
 docker run -it --rm -v "${PWD}:/app" pastis pastis-mds .
 docker run -it --rm -v "${PWD}:/app" pastis pastis-nmds .
-
-Pop-Location
 ```
 
-These commands create the four structure outputs in the mounted run directory. The same commands can be run individually when you want to rerun only one method.
+## Step 3: Format and split chromosome coordinates
 
-## Step 3: Format and split the chromosome coordinates
-
-The coordinate formatter and splitter run in the same Docker image and write their results into the mounted run directory:
+Run the formatter and splitter in Docker. They read and write files in the mounted repository root:
 
 ```powershell
 docker run --rm `
-  -v "${RunDir}:/app" `
-  -v "${ProjectRoot}\src:/src:ro" `
+  -v "${PWD}:/app" `
+  -v "${PWD}\src:/src:ro" `
   pastis python3 -u /src/coordinates_blank.py
 
 docker run --rm `
-  -v "${RunDir}:/app" `
-  -v "${ProjectRoot}\src:/src:ro" `
+  -v "${PWD}:/app" `
+  -v "${PWD}\src:/src:ro" `
   pastis python3 -u /src/split_chromosomes.py
 ```
 
-The result directories are `MDS_split`, `NMDS_split`, `PM1_split`, and `PM2_split`. Each contains numbered chromosome coordinate files such as `1.txt` and `2.txt`.
+This creates `MDS_split`, `NMDS_split`, `PM1_split`, and `PM2_split` in the repository root. Each contains numbered chromosome files such as `1.txt`, `2.txt`, and so on.
 
-## Step 4: Compile and run Java to calculate linking frequency
+## Step 4: Compile and run Java
 
-Install a Java JDK so both `javac` and `java` are available in PowerShell. Then compile and run the Java program from the repository root:
+Install a Java JDK so `javac` and `java` are available in PowerShell. From the repository root, compile the Java source into the current directory and run it with the four split folders:
 
 ```powershell
-$ClassesDir = Join-Path $RunDir "java-classes"
-$LinkingDir = Join-Path $RunDir "linking"
-New-Item -ItemType Directory -Force -Path $ClassesDir, $LinkingDir | Out-Null
-
-javac -encoding UTF-8 -d $ClassesDir .\src\java\ComputeWriteC3.java
-java -cp $ClassesDir computewritec.ComputeWriteC3 `
-  $LinkingDir `
-  (Join-Path $RunDir "MDS_split") `
-  (Join-Path $RunDir "NMDS_split") `
-  (Join-Path $RunDir "PM1_split") `
-  (Join-Path $RunDir "PM2_split")
+javac -encoding UTF-8 -d . .\src\java\ComputeWriteC3.java
+java -cp . computewritec.ComputeWriteC3 `
+  . `
+  .\MDS_split `
+  .\NMDS_split `
+  .\PM1_split `
+  .\PM2_split
 ```
 
-The linking-frequency results are written under `results/HindIII_MspI/linking/`:
+The linking-frequency files are written directly to the repository root:
 
 ```text
 MDS_split_linking_frequency.txt
@@ -108,21 +94,21 @@ PM1_split_linking_frequency.txt
 PM2_split_linking_frequency.txt
 ```
 
-Each file contains one percentage for each of the 120 chromosome pairs. The Java program uses 1,000 random samples per pair, so repeated runs can differ slightly.
+Each file contains one percentage for each of the 120 chromosome pairs. Java uses 1,000 random samples per pair, so values can vary slightly between runs.
 
 ## One-command alternative
 
-`run_example.ps1` automates the matrix preparation, all four Pastis commands, coordinate formatting, Java compilation, and linking-frequency calculation. After building the image with `docker build -t pastis .`, run:
+`run_example.ps1` performs matrix creation, all four Pastis runs, coordinate formatting, Java compilation, and linking-frequency calculation. Build the image first, then run:
 
 ```powershell
 .\run_example.ps1
 ```
 
-It writes the full run to `results/HindIII_MspI/`. It stops if that output directory already exists to avoid mixing results from different runs.
+Generated matrices, structures, split folders, logs, compiled Java classes, and linking-frequency files are written directly into the repository root. A later run replaces files with the same names.
 
 ## Optional analyses
 
-After the linking-frequency files have been created, run these from the repository root with Python dependencies installed:
+After generating the four linking-frequency files, run these from the repository root:
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -130,34 +116,23 @@ python .\analysis\EB.py
 python .\analysis\chi-square.py
 ```
 
-For the separate Panel 1 / Panel 2 thresholding example:
+For the separate Panel thresholding example, run the single retained script:
 
 ```powershell
-python .\analysis\semi-threshold.py
 python .\analysis\semi2.py
 ```
 
-Both scripts read percentage values from `data/thresholding/panel_1_max.txt` and `panel_2_max.txt`, then convert them to proportions. `semi-threshold.py` saves its F-hat plots under `results/thresholding/`.
-
-An earlier run of `semi-threshold.py` reported the values below. That run searched `c` over -10 to 10, including invalid negative and near-zero values. The current script restricts `c` to the positive range 0.01 to 10, so rerun it before reporting results for this repository version.
-
-| Scale | Rule | c-hat | Minimum F-hat | Near-zero after shrinkage | Baseline near-zero |
-|---|---:|---:|---:|---:|---:|
-| Untransformed | G1 | -0.001 | -5.6763 | 3.33% | 2.50% |
-| Untransformed | G2 | 0.001 | -5.6763 | 3.33% | 2.50% |
-| Transformed | G1 | -0.001 | -7.5970 | 1.67% | Not reported |
-| Transformed | G2 | 0.001 | -7.5970 | 1.67% | Not reported |
+`semi2.py` reads percentage values from `data/thresholding/panel_1_max.txt` and `panel_2_max.txt`, converts them to proportions, and prints the thresholding estimates and diagnostics. It handles boundary values and searches `c` over a positive range.
 
 ## Project files
 
 ```text
-data/raw/              HindIII + MspI inter/intra input CSV files
+data/raw/              HindIII + MspI inter/intra interaction CSV files
 data/metadata/         10 kb BED intervals used for mapping
-data/thresholding/     Panel 1 and Panel 2 vectors for the separate thresholding example
+data/thresholding/     Panel 1 and Panel 2 vectors for semi2.py
 src/locus.py           Interaction-to-bin mapping and contact matrix creation
 src/coordinates_blank.py
 src/split_chromosomes.py
 src/java/ComputeWriteC3.java
-analysis/               EB, chi-square, and semi-soft threshold analyses
-results/                Generated outputs (not tracked by Git)
+analysis/               EB, chi-square, and semi2 analyses
 ```

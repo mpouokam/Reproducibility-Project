@@ -11,7 +11,7 @@ files = [
     "PM2_split_linking_frequency.txt"
 ]
 
-folder = Path(__file__).resolve().parents[1] / "results" / "HindIII_MspI" / "linking"
+folder = Path(__file__).resolve().parents[1]
 data_dict = {}
 
 for file in files:

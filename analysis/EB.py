@@ -8,7 +8,7 @@ import numpy as np
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-LINKING_DIR = PROJECT_ROOT / "results" / "HindIII_MspI" / "linking"
+LINKING_DIR = PROJECT_ROOT
 
 # ====== Config ======
 FILE_MDS  = LINKING_DIR / "MDS_split_linking_frequency.txt"
